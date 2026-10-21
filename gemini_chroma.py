@@ -73,32 +73,55 @@ collection.upsert(
 print("Chunks stored:", collection.count())
 print("Embedding dimensions:", len(vectors[0]))
 
-# 8. Embed a user's question with the SAME model.
-question = "can i use acme technologies software for a business finance purpose?"
 
-query_response = gemini.models.embed_content(
-    model=EMBEDDING_MODEL,
-    contents=question,
-)
+# 8. Start an interactive question-and-answer loop.
+print("\nWelcome to Acme AI Assistant!")
+print("Ask questions about Acme Technologies.")
+print("Type 'exit' or 'quit' to stop.")
 
-query_vector = query_response.embeddings[0].values
+while True:
+    # 9. Read the user's question.
+    question = input("\nAsk a question: ").strip()
 
-# 9. Search ChromaDB using the Gemini query vector.
-results = collection.query(
-    query_embeddings=[query_vector],
-    n_results=2,
-    include=["documents", "metadatas", "distances"],
-)
+    # 10. Allow the user to exit.
+    if question.lower() in {"exit", "quit"}:
+        print("Goodbye!")
+        break
 
-retrieved_chunks = results["documents"][0]
+    # 11. Ignore empty questions.
+    if not question:
+        print("Please enter a question.")
+        continue
 
-context = "\n\n".join(retrieved_chunks)
+    # 12. Convert the question into a Gemini embedding.
+    query_response = gemini.models.embed_content(
+        model=EMBEDDING_MODEL,
+        contents=question,
+    )
 
-prompt = f"""
+    query_vector = query_response.embeddings[0].values
+
+    # 13. Retrieve the three closest document chunks.
+    results = collection.query(
+        query_embeddings=[query_vector],
+        n_results=min(3, collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+
+    retrieved_chunks = results["documents"][0]
+
+    if not retrieved_chunks:
+        print("No document chunks were retrieved.")
+        continue
+
+    # 14. Combine the retrieved text into context.
+    context = "\n\n".join(retrieved_chunks)
+
+    # 15. Create instructions for the generation model.
+    prompt = f"""
 You are a helpful assistant answering questions about Acme Technologies.
 
-Answer the question using only the information in the context below.
-
+Answer using only the information in the provided context.
 If the context does not contain the answer, say:
 "I could not find that information in the provided documents."
 
@@ -115,13 +138,22 @@ Question:
 Answer:
 """
 
-response = gemini.models.generate_content(
-    model = "gemini-3.8-flash",
-    contents = prompt,
-)
+    # 16. Generate the answer.
+    response = gemini.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt,
+    )
 
-print("\nQuestion:", question)
-print("\nRetrieved context:", context)
-print("\nGemini's answer:")
-print(response.text)
+    print("\nAnswer:")
+    print(response.text)
 
+    # 17. Show retrieved sources for debugging.
+    print("\nRetrieved sources:")
+
+    for i, document in enumerate(retrieved_chunks):
+        metadata = results["metadatas"][0][i]
+        distance = results["distances"][0][i]
+
+        print(f"\nSource {i + 1}: {metadata['source']}")
+        print("Chunk:", document)
+        print("Cosine distance:", round(distance, 4))
